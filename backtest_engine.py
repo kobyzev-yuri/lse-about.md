@@ -178,6 +178,50 @@ class BacktestEngine:
         # Заменяем метод получения цены
         executor._get_current_price = get_price_for_date
         
+        # Модифицируем analyst для работы с историческими данными
+        original_get_quotes = analyst.get_last_5_days_quotes
+        original_get_volatility = analyst.get_average_volatility_20_days
+        
+        def get_quotes_for_date(ticker: str) -> pd.DataFrame:
+            """Получает последние 5 дней котировок ДО текущей даты бэктестинга"""
+            if self.current_date:
+                with analyst.engine.connect() as conn:
+                    query = text("""
+                        SELECT date, ticker, close, volume, sma_5, volatility_5
+                        FROM quotes
+                        WHERE ticker = :ticker AND date <= :date
+                        ORDER BY date DESC
+                        LIMIT 5
+                    """)
+                    df = pd.read_sql(query, conn, params={"ticker": ticker, "date": self.current_date})
+                    return df
+            return original_get_quotes(ticker)
+        
+        def get_volatility_for_date(ticker: str) -> float:
+            """Получает среднюю волатильность за 20 дней ДО текущей даты бэктестинга"""
+            if self.current_date:
+                with analyst.engine.connect() as conn:
+                    query = text("""
+                        SELECT AVG(volatility_5) as avg_volatility
+                        FROM (
+                            SELECT volatility_5
+                            FROM quotes
+                            WHERE ticker = :ticker AND date <= :date
+                            ORDER BY date DESC
+                            LIMIT 20
+                        ) as last_20
+                    """)
+                    result = conn.execute(query, {"ticker": ticker, "date": self.current_date})
+                    row = result.fetchone()
+                    if row and row[0] is not None:
+                        return float(row[0])
+                    return 0.0
+            return original_get_volatility(ticker)
+        
+        # Заменяем методы analyst
+        analyst.get_last_5_days_quotes = get_quotes_for_date
+        analyst.get_average_volatility_20_days = get_volatility_for_date
+        
         trades_count = 0
         decisions_count = 0
         
@@ -223,8 +267,10 @@ class BacktestEngine:
                     logger.warning(f"⚠️ Ошибка при обработке {ticker} на {date.date()}: {e}")
                     continue
         
-        # Восстанавливаем оригинальный метод
+        # Восстанавливаем оригинальные методы
         executor._get_current_price = original_get_price
+        analyst.get_last_5_days_quotes = original_get_quotes
+        analyst.get_average_volatility_20_days = original_get_volatility
         
         # Получаем финальные результаты
         results = self._calculate_backtest_results()
