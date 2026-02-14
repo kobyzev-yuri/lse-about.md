@@ -371,7 +371,7 @@ sequenceDiagram
     EA->>Portfolio: INSERT/UPDATE позиции
     Portfolio-->>EA: Подтверждение
     
-    Note over EA,Portfolio: avg_entry_price = (old_qty × old_price + new_qty × new_price) / (old_qty + new_qty)
+    Note over EA,Portfolio: avg_entry_price = old_qty умножить old_price плюс new_qty умножить new_price разделить на old_qty плюс new_qty
 ```
 
 **Комментарий**: Система использует средневзвешенную цену входа для расчета средней стоимости позиции при добавлении новых лотов. Это важно для правильного расчета PnL при частичном закрытии позиции.
